@@ -4,13 +4,15 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
+	// "crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"encoding/xml"
 	"fmt"
-	"io/ioutil"
+	// "io/ioutil"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -28,8 +30,10 @@ const (
 	valTypeX509Token = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"
 
 	canonicalizationExclusiveC14N = "http://www.w3.org/2001/10/xml-exc-c14n#"
-	rsaSha1Sig                    = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
-	sha1Sig                       = "http://www.w3.org/2000/09/xmldsig#sha1"
+	// rsaSha1Sig                    = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
+	// sha1Sig                       = "http://www.w3.org/2000/09/xmldsig#sha1"
+	rsaSha256Sig = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+	sha256Sig    = "http://www.w3.org/2001/04/xmlenc#sha256"
 )
 
 // WSSEAuthInfo contains the information required to use WS-Security X.509 signing.
@@ -49,7 +53,7 @@ type WSSEAuthIDs struct {
 // If the supplied certificate path does not point to a DER-encoded X.509 certificate, or
 // if the supplied key path does not point to a PEM-encoded X.509 certificate, an error will be returned.
 func NewWSSEAuthInfo(certPath string, keyPath string) (*WSSEAuthInfo, error) {
-	certFileContents, err := ioutil.ReadFile(certPath)
+	certFileContents, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, err
 	}
@@ -62,14 +66,14 @@ func NewWSSEAuthInfo(certPath string, keyPath string) (*WSSEAuthInfo, error) {
 	certDer = strings.TrimPrefix(certDer, "-----BEGIN CERTIFICATE-----")
 	certDer = strings.TrimSuffix(certDer, "-----END CERTIFICATE-----")
 
-	keyFileContents, err := ioutil.ReadFile(keyPath)
+	keyFileContents, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, err
 	}
 
 	keyPemBlock, _ := pem.Decode(keyFileContents)
 
-	if keyPemBlock == nil || keyPemBlock.Type != "RSA PRIVATE KEY" {
+	if keyPemBlock == nil || (keyPemBlock.Type != "RSA PRIVATE KEY" && keyPemBlock.Type != "PRIVATE KEY") {
 		return nil, ErrInvalidPEMFileSpecified
 	} else if x509.IsEncryptedPEMBlock(keyPemBlock) {
 		return nil, ErrEncryptedPEMFileSpecified
@@ -187,7 +191,8 @@ func (w *WSSEAuthIDs) generateToken() ([]byte, error) {
 	// We use a concatentation of the time and 10 securely generated random numbers to be the tokens.
 	b := make([]byte, 10)
 
-	token := sha1.New()
+	// token := sha1.New()
+	token := sha256.New()
 	token.Write([]byte(time.Now().Format(time.RFC3339)))
 
 	_, err := rand.Read(b)
@@ -238,7 +243,8 @@ func (w *WSSEAuthInfo) sign(body Body, ids *WSSEAuthIDs) (security, error) {
 		return security{}, err
 	}
 
-	bodyHasher := sha1.New()
+	// bodyHasher := sha1.New()
+	bodyHasher := sha256.New()
 	bodyHasher.Write(canonBodyEnc)
 	encodedBodyDigest := base64.StdEncoding.EncodeToString(bodyHasher.Sum(nil))
 
@@ -249,7 +255,8 @@ func (w *WSSEAuthInfo) sign(body Body, ids *WSSEAuthIDs) (security, error) {
 			Algorithm: canonicalizationExclusiveC14N,
 		},
 		SignatureMethod: signatureMethod{
-			Algorithm: rsaSha1Sig,
+			// Algorithm: rsaSha1Sig,
+			Algorithm: rsaSha256Sig,
 		},
 		Reference: signatureReference{
 			URI: "#" + ids.bodyID,
@@ -259,7 +266,8 @@ func (w *WSSEAuthInfo) sign(body Body, ids *WSSEAuthIDs) (security, error) {
 				},
 			},
 			DigestMethod: digestMethod{
-				Algorithm: sha1Sig,
+				// Algorithm: sha1Sig,
+				Algorithm: sha256Sig,
 			},
 			DigestValue: digestValue{
 				Value: encodedBodyDigest,
@@ -272,11 +280,13 @@ func (w *WSSEAuthInfo) sign(body Body, ids *WSSEAuthIDs) (security, error) {
 		return security{}, err
 	}
 
-	signedInfoHasher := sha1.New()
+	// signedInfoHasher := sha1.New()
+	signedInfoHasher := sha256.New()
 	signedInfoHasher.Write(signedInfoEnc)
 	signedInfoDigest := signedInfoHasher.Sum(nil)
 
-	signatureValue, err := rsa.SignPKCS1v15(rand.Reader, w.key, crypto.SHA1, signedInfoDigest)
+	// signatureValue, err := rsa.SignPKCS1v15(rand.Reader, w.key, crypto.SHA1, signedInfoDigest)
+	signatureValue, err := rsa.SignPKCS1v15(rand.Reader, w.key, crypto.SHA256, signedInfoDigest)
 	if err != nil {
 		return security{}, err
 	}
